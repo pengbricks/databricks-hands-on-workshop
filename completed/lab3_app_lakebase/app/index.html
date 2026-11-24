@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admissions notes</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1rem; color: #1b1b1b; }
+  nav button { font: inherit; padding: .5rem 1rem; border: 0; border-bottom: 3px solid transparent; background: none; cursor: pointer; }
+  nav button[aria-selected="true"] { border-color: #c2410c; font-weight: 600; }
+  nav { border-bottom: 1px solid #ddd; margin-bottom: 1.5rem; }
+  label { display: block; margin: .75rem 0 .25rem; font-weight: 600; }
+  input, textarea { font: inherit; width: 100%; padding: .5rem; border: 1px solid #999; border-radius: 4px; box-sizing: border-box; }
+  button.action { font: inherit; margin-top: .75rem; padding: .5rem 1rem; border: 0; border-radius: 4px; background: #1b3139; color: #fff; cursor: pointer; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+  th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid #ddd; vertical-align: top; }
+  pre { background: #f4f4f4; padding: .75rem; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  #message { color: #b91c1c; min-height: 1.2rem; }
+  #summary { background: #f4f4f4; padding: .75rem; border-radius: 4px; }
+  #summary:empty { display: none; }
+</style>
+</head>
+<body>
+<h1>Admissions notes</h1>
+<nav role="tablist">
+  <button role="tab" id="tab-notes" aria-selected="true" aria-controls="panel-notes">Notes</button>
+  <button role="tab" id="tab-api" aria-selected="false" aria-controls="panel-api">Use in an API</button>
+</nav>
+
+<section id="panel-notes" role="tabpanel" aria-labelledby="tab-notes">
+  <form id="note-form">
+    <label for="institution">Institution</label>
+    <input id="institution" required>
+    <label for="note">Note</label>
+    <textarea id="note" rows="3" required></textarea>
+    <button class="action" type="submit">Save</button>
+  </form>
+  <p id="message" role="status"></p>
+  <h2 id="count"></h2>
+  <table>
+    <thead><tr><th>Institution</th><th>Note</th><th>Created</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <button class="action" id="summarize" type="button">Summarize notes</button>
+  <p id="summary" role="status"></p>
+</section>
+
+<section id="panel-api" role="tabpanel" aria-labelledby="tab-api" hidden>
+  <p>The app serves three routes under <code>/api</code>. Each call needs a Databricks OAuth token. A token lasts one hour.</p>
+  <table>
+    <thead><tr><th>Method</th><th>Path</th><th>Does</th></tr></thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/api/notes</code></td><td>Lists the notes</td></tr>
+      <tr><td>POST</td><td><code>/api/notes</code></td><td>Saves a note. JSON body: <code>institution</code>, <code>note</code></td></tr>
+      <tr><td>POST</td><td><code>/api/summary</code></td><td>Returns the model's summary of the notes</td></tr>
+    </tbody>
+  </table>
+
+  <h2>1. Get a token</h2>
+  <p>Install the <a href="https://docs.databricks.com/aws/en/dev-tools/cli/install">Databricks CLI</a>, then run:</p>
+  <pre id="token-commands"></pre>
+  <p>Copy the <code>access_token</code> value from the output.</p>
+
+  <h2>2. Call the app with curl</h2>
+  <pre id="curl-commands"></pre>
+
+  <h2>3. Call the app with Postman</h2>
+  <ol>
+    <li>Create a request. Set the method to <code>POST</code> and the URL to <code id="postman-url"></code>.</li>
+    <li>On the <strong>Authorization</strong> tab, choose <strong>Bearer Token</strong> and paste the token.</li>
+    <li>On the <strong>Body</strong> tab, choose <strong>raw</strong> and <strong>JSON</strong>, and paste:
+      <pre>{"institution": "University of Michigan-Ann Arbor", "note": "Check how the yield rate changed after 2020."}</pre></li>
+    <li>Click <strong>Send</strong>. The response is the saved note with status 201.</li>
+  </ol>
+</section>
+
+<script>
+const app = window.location.origin;
+const $ = (id) => document.getElementById(id);
+
+for (const tab of document.querySelectorAll('[role="tab"]')) {
+  tab.addEventListener("click", () => {
+    for (const other of document.querySelectorAll('[role="tab"]')) {
+      const selected = other === tab;
+      other.setAttribute("aria-selected", selected);
+      $(other.getAttribute("aria-controls")).hidden = !selected;
+    }
+  });
+}
+
+async function call(path, options) {
+  const response = await fetch(path, options);
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.detail || response.statusText);
+  return body;
+}
+
+async function loadNotes() {
+  const notes = await call("/api/notes");
+  $("count").textContent = `${notes.length} notes in Lakebase`;
+  $("rows").replaceChildren(...notes.map((n) => {
+    const row = document.createElement("tr");
+    for (const value of [n.institution, n.note, new Date(n.created_at).toLocaleString()]) {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.append(cell);
+    }
+    return row;
+  }));
+}
+
+$("note-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("message").textContent = "";
+  try {
+    await call("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ institution: $("institution").value, note: $("note").value }),
+    });
+    event.target.reset();
+    await loadNotes();
+  } catch (error) {
+    $("message").textContent = error.message;
+  }
+});
+
+$("summarize").addEventListener("click", async () => {
+  $("summary").textContent = "Asking the model...";
+  try {
+    $("summary").textContent = (await call("/api/summary", { method: "POST" })).summary;
+  } catch (error) {
+    $("summary").textContent = error.message;
+  }
+});
+
+async function fillApiTab() {
+  const { workspace_host } = await call("/api/info");
+  $("token-commands").textContent =
+    `databricks auth login --host ${workspace_host}\n` +
+    `databricks auth token --host ${workspace_host}`;
+  $("curl-commands").textContent =
+    `export TOKEN="<paste the access_token>"\n\n` +
+    `# List the notes\n` +
+    `curl "${app}/api/notes" -H "Authorization: Bearer $TOKEN"\n\n` +
+    `# Save a note\n` +
+    `curl -X POST "${app}/api/notes" \\\n` +
+    `  -H "Authorization: Bearer $TOKEN" \\\n` +
+    `  -H "Content-Type: application/json" \\\n` +
+    `  -d '{"institution": "University of Michigan-Ann Arbor", "note": "Check how the yield rate changed after 2020."}'\n\n` +
+    `# Summarize the notes\n` +
+    `curl -X POST "${app}/api/summary" -H "Authorization: Bearer $TOKEN"`;
+  $("postman-url").textContent = `${app}/api/notes`;
+}
+
+loadNotes().catch((error) => { $("message").textContent = error.message; });
+fillApiTab();
+</script>
+</body>
+</html>

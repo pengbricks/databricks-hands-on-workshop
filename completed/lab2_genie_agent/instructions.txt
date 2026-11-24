@@ -1,0 +1,3 @@
+"Selective" means an institution with admit_rate below 0.25 and at least 5000 applicants in that year.
+When a question does not name a year, use the latest year in the data.
+admit_rate and yield_rate are fractions from 0 to 1. Show them as percentages.

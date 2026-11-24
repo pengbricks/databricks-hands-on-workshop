@@ -1,0 +1,8 @@
+command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+env:
+  # Resource key "postgres": resolves to the Lakebase endpoint path.
+  - name: LAKEBASE_ENDPOINT
+    valueFrom: postgres
+  # Resource key "model": resolves to the serving endpoint's name.
+  - name: MODEL_NAME
+    valueFrom: model
